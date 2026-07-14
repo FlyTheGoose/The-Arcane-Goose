@@ -9,7 +9,7 @@
  * needs to change between environments.
  */
 window.TAROT_CONFIG = {
-  API_BASE: "https://affect-manitoba-neon-display.trycloudflare.com",
+  API_BASE: "https://proof-billion-explained-mens.trycloudflare.com",
   // When true, the app won't require Telegram WebApp (pairs with API_DEV_MODE=1).
   DEV: false,
 };
