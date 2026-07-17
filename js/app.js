@@ -40,7 +40,7 @@
   // ---- State ----
   var state = {
     me: null, features: null, catalog: [], catalogLabels: {},
-    current: null, chat: null
+    current: null, chat: null, coins: null
   };
 
   // ---- DOM helpers ----
@@ -105,6 +105,28 @@
   }
 
   // ---- Navigation ----
+  // Звёздная пыль на главном экране — лёгкий CSS-слой из мерцающих частиц.
+  function initStardust() {
+    var home = document.getElementById("screen-home");
+    if (!home || home.querySelector(".stardust")) return;
+    var layer = document.createElement("div");
+    layer.className = "stardust";
+    for (var i = 0; i < 24; i++) {
+      var s = document.createElement("span");
+      s.className = "dust";
+      s.style.left = (Math.random() * 100).toFixed(2) + "%";
+      s.style.top = (Math.random() * 100).toFixed(2) + "%";
+      var dur = (6 + Math.random() * 9);
+      s.style.animationDuration = dur.toFixed(2) + "s";
+      s.style.animationDelay = (-Math.random() * dur).toFixed(2) + "s";
+      var sz = (1 + Math.random() * 2.6).toFixed(2);
+      s.style.width = sz + "px";
+      s.style.height = sz + "px";
+      layer.appendChild(s);
+    }
+    home.insertBefore(layer, home.firstChild);
+  }
+
   function showScreen(name) {
     $all(".screen").forEach(function (s) { s.classList.remove("active"); });
     var scr = $("#screen-" + name);
@@ -123,6 +145,10 @@
     else if (name === "settings") renderSettings();
     else if (name === "manual") setupManual();
     else if (name === "calendar") loadCalendar();
+    else if (name === "collection") loadCollection();
+    else if (name === "readers") loadReaders();
+    else if (name === "quests") loadQuests();
+    else if (name === "admin") loadAdminStats();
     else if (name === "home") loadMe();
   }
 
@@ -157,15 +183,109 @@
     return apiFetch("/api/me").then(function (me) {
       state.me = me;
       state.features = me.features;
+      state.backs = me.backs || null;
+      state.backUrl = (me.backs && me.backs.url) ? me.backs.url : null;
       applyTheme(me.theme);
-      $("#greeting").textContent = me.first_name ? "Здравствуй, " + me.first_name : "Здравствуй";
+      renderRank(me.rank);
       $("#admin-badge").hidden = !me.is_admin;
       updateStars(me.limits);
       loadCatalog(me.limits);
       loadDeckPill();
       loadWeekBanner();
       renderPremium(me);
+      renderReaderPill(me.interpreter);
+      renderCoins(me.coins);
     }).catch(handleError);
+  }
+
+  // ---- Трактователи (interpreter personas) ----
+  function renderReaderPill(it) {
+    if (!it) return;
+    var em = $("#reader-pill-emoji");
+    var nm = $("#reader-pill-name");
+    if (em) em.textContent = it.emoji || "\uD83D\uDD2E";
+    if (nm) nm.textContent = it.name || "Таролог";
+  }
+
+  function readerActionLabel(r) {
+    if (r.selected) return "✓ Выбран";
+    if (r.available) return "Выбрать";
+    if (r.premium_selectable) return "Включить в Premium";
+    return "Купить · ⭐ " + (r.price_stars || 0);
+  }
+
+  function loadReaders() {
+    var wrap = $("#readers-list");
+    if (wrap) { wrap.innerHTML = ""; wrap.appendChild(el("div", "empty-note", "Загружаю трактователей…")); }
+    return apiFetch("/api/interpreters").then(function (res) {
+      renderReaders(res);
+    }).catch(function (err) {
+      if (wrap) { wrap.innerHTML = ""; wrap.appendChild(el("div", "empty-note", "Не удалось загрузить трактователей.")); }
+      handleError(err);
+    });
+  }
+
+  function renderReaders(res) {
+    var wrap = $("#readers-list");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    var list = (res && res.interpreters) || [];
+    if (res && res.premium_includes_one) {
+      wrap.appendChild(el("div", "readers-hint",
+        "В Premium входит один платный трактователь на выбор — пока подписка активна. Остальные можно купить навсегда."));
+    }
+    list.forEach(function (r) {
+      var card = el("div", "reader-card");
+      if (r.selected) card.classList.add("selected");
+      if (!r.available && !r.premium_selectable) card.classList.add("locked");
+
+      var head = el("div", "reader-head");
+      head.appendChild(el("span", "reader-emoji", r.emoji || "\uD83D\uDD2E"));
+      var titleWrap = el("div", "reader-title-wrap");
+      titleWrap.appendChild(el("div", "reader-name", r.name || ""));
+      if (r.tagline) titleWrap.appendChild(el("div", "reader-tagline", r.tagline));
+      head.appendChild(titleWrap);
+      var badge = "";
+      if (r.free) badge = "Базовый";
+      else if (r.owned) badge = "Куплен";
+      else if (r.in_premium_slot) badge = "Premium";
+      if (badge) head.appendChild(el("span", "reader-badge", badge));
+      head.addEventListener("click", function () { card.classList.toggle("open"); });
+      card.appendChild(head);
+
+      if (r.desc) card.appendChild(el("div", "reader-desc", r.desc));
+
+      var btn = el("button", "reader-action", readerActionLabel(r));
+      if (r.selected) btn.disabled = true;
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        selectReader(r.id);
+      });
+      card.appendChild(btn);
+      wrap.appendChild(card);
+    });
+  }
+
+  function selectReader(id) {
+    if (!id) return;
+    overlay(true, "Минутку…");
+    apiFetch("/api/interpreters/select", { method: "POST", body: { id: id } })
+      .then(function () {
+        overlay(false);
+        haptic("success");
+        toast("Трактователь выбран ✨");
+        loadReaders();
+        loadMe();
+      })
+      .catch(function (err) {
+        overlay(false);
+        var detail = err && err.detail;
+        if (err && err.status === 402 && detail && detail.product) {
+          startPurchase(detail.product, function () { loadReaders(); loadMe(); });
+          return;
+        }
+        handleError(err);
+      });
   }
 
   // ---- Payments (Telegram Stars) ----
@@ -264,7 +384,7 @@
     apiFetch("/api/decks").then(function (res) {
       var sel = res.decks.filter(function (d) { return d.selected; })[0] || res.decks[0];
       if (sel) {
-        $("#deck-pill-emoji").textContent = sel.emoji || "🂠";
+        $("#deck-pill-emoji").textContent = sel.emoji || "🎴";
         $("#deck-pill-name").textContent = sel.name;
       }
     }).catch(function () {});
@@ -314,7 +434,7 @@
     var chip = el("div", "sc-chip", "…");
     chip.setAttribute("data-chip", s.action);
     btn.appendChild(chip);
-    btn.addEventListener("click", function () { drawSpread(s.key); });
+    btn.addEventListener("click", function () { openQuestionSheet(s.key); });
     return btn;
   }
 
@@ -333,16 +453,60 @@
     return " карт";
   }
 
-  function getQuestion() {
-    var v = ($("#q-input").value || "").trim();
-    return v || null;
+  // ---- Звание (rank) на главной ----
+  function renderRank(rank) {
+    if (!rank) return;
+    var em = $("#rank-emoji"); if (em) em.textContent = rank.title_emoji || "✦";
+    var t = $("#rank-title"); if (t) t.textContent = rank.title || "";
+    var d = $("#rank-degree"); if (d) d.textContent = "Степень " + (rank.degree_roman || "");
+    var f = $("#rank-bar-fill"); if (f) f.style.width = (rank.progress_pct || 0) + "%";
+    var s = $("#rank-sub");
+    if (s) {
+      if (rank.is_max) s.textContent = rank.total_cards + " карт · вершина пути ✨";
+      else s.textContent = rank.total_cards + " карт · ещё " + rank.cards_to_next + " до степени " +
+        nextDegreeRoman(rank);
+    }
+  }
+  function nextDegreeRoman(rank) {
+    // Внутри звания степень растёт XIII→I; на стыке званий — снова XIII.
+    if (!rank) return "";
+    if (rank.degree > 1) return ROMAN[rank.degree - 1] || "";
+    return "XIII";
+  }
+  var ROMAN = { 1: "I", 2: "II", 3: "III", 4: "IV", 5: "V", 6: "VI", 7: "VII",
+    8: "VIII", 9: "IX", 10: "X", 11: "XI", 12: "XII", 13: "XIII" };
+
+  // ---- Вопрос перед раскладом (по желанию, для любого расклада/карты дня) ----
+  var pendingSpread = null;
+  function openQuestionSheet(type) {
+    pendingSpread = type;
+    var s = null;
+    for (var i = 0; i < (state.catalog || []).length; i++) {
+      if (state.catalog[i].key === type) { s = state.catalog[i]; break; }
+    }
+    var title = $("#q-sheet-title"); if (title) title.textContent = s ? shortName(s) : "Расклад";
+    var inp = $("#q-sheet-input"); if (inp) inp.value = "";
+    $("#q-sheet").hidden = false;
+    haptic("light");
+    setTimeout(function () { try { inp && inp.focus(); } catch (e) {} }, 60);
+  }
+  function closeQuestionSheet() {
+    $("#q-sheet").hidden = true;
+    pendingSpread = null;
+  }
+  function confirmQuestionSheet() {
+    var t = pendingSpread;
+    var inp = $("#q-sheet-input");
+    var q = inp ? (inp.value || "").trim() || null : null;
+    closeQuestionSheet();
+    if (t) drawSpread(t, q);
   }
 
   // ---- DRAW (шаг 1: карты рубашкой вверх) ----
-  function drawSpread(type) {
+  function drawSpread(type, question) {
     haptic("medium");
     overlay(true, "Тасую колоду…");
-    apiFetch("/api/spread/draw", { method: "POST", body: { type: type, question: getQuestion() } })
+    apiFetch("/api/spread/draw", { method: "POST", body: { type: type, question: question || null } })
       .then(function (res) {
         state.current = {
           id: res.id, type: res.type, label: res.label || labelFor(res.type),
@@ -361,9 +525,11 @@
         if (err.status === 429) {
           haptic("error");
           var dd = err.detail || {};
-          if (dd.product) {
+          if (offerLimitOptions(dd, function () { drawSpread(type, question); })) {
+            // оплачено зёрнами — перерисовка внутри payWithCoins
+          } else if (dd.product) {
             toast("Лимит исчерпан. Докупить расклад за ⭐ " + (dd.price_stars || "") + "?");
-            offerPurchase(dd, function () { drawSpread(type); });
+            offerPurchase(dd, function () { drawSpread(type, question); });
           } else {
             toast("Лимит на сегодня исчерпан. Сброс в 00:00 UTC.");
             if (state.me) loadMe();
@@ -380,6 +546,8 @@
     if (type === "cross4") return "layout-cross4";
     if (type === "cross5") return "layout-cross5";
     if (n >= 6) return "layout-grid";
+    if (n === 1) return "layout-single";
+    if (n === 3) return "layout-three";
     return "layout-line";
   }
   var CROSS4_AREAS = ["pTop", "pBottom", "pLeft", "pRight"];
@@ -398,21 +566,24 @@
       var slot = cardSlot(card, i, cur, opts);
       if (cur.type === "cross4") slot.style.gridArea = CROSS4_AREAS[i] || "";
       if (cur.type === "cross5") slot.style.gridArea = CROSS5_AREAS[i] || "";
+      // Анимация раздачи: карты «вылетают» и ложатся поочерёдно (только при свежем раскладе).
+      if (!opts.done) {
+        slot.classList.add("dealing");
+        slot.style.animationDelay = (i * 0.14).toFixed(2) + "s";
+      }
       row.appendChild(slot);
     });
 
     // Сброс блоков трактовки/премиума
     $("#interp").textContent = "";
     $("#interp-wrap").hidden = true;
-    $("#deep-block").hidden = true;
-    $("#deep-text").hidden = true; $("#deep-text").textContent = "";
     $("#chat-hint").hidden = true;
 
     if (opts.done) {
       // История: карты уже раскрыты, трактовка готова.
       $("#table-hint").hidden = true;
       showInterpretation(cur.interpretation || "");
-      showDeepAndChat(cur);
+      showChatHint(cur);
     } else {
       $("#table-hint").hidden = false;
     }
@@ -427,9 +598,10 @@
 
     // Рубашка (back)
     var back = el("div", "face back");
-    if (card.back) {
+    var backSrc = state.backUrl || card.back;
+    if (backSrc) {
       var bimg = document.createElement("img");
-      bimg.src = API + card.back;
+      bimg.src = API + backSrc;
       bimg.alt = "";
       bimg.onerror = function () { back.classList.add("noimg"); back.textContent = "✧"; bimg.remove(); };
       back.appendChild(bimg);
@@ -502,7 +674,7 @@
         cur.done = true;
         cur.interpreting = false;
         showInterpretation(cur.interpretation);
-        showDeepAndChat(cur);
+        showChatHint(cur);
         haptic("success");
       })
       .catch(function (err) {
@@ -521,44 +693,9 @@
     $("#interp").textContent = text || "";
   }
 
-  function showDeepAndChat(cur) {
+  // Глубокий разбор убран — остаётся только разговор с картой.
+  function showChatHint(cur) {
     $("#chat-hint").hidden = false;
-    var deepBlock = $("#deep-block");
-    deepBlock.hidden = false;
-    var f = state.features || {};
-    var deepIncluded = !f.deep_dive || f.deep_dive.included || (state.me && state.me.is_admin);
-    var price = deepIncluded ? "" : ("⭐ " + (f.deep_dive ? f.deep_dive.price_stars : ""));
-    $("#deep-price").textContent = price;
-    var btn = $("#deep-btn");
-    btn.disabled = false;
-    btn.onclick = function () { requestDeep(cur.id); };
-  }
-
-  function requestDeep(spreadId) {
-    var btn = $("#deep-btn");
-    btn.disabled = true;
-    overlay(true, "Заглядываю глубже…");
-    apiFetch("/api/deep", { method: "POST", body: { spread_id: spreadId } })
-      .then(function (res) {
-        overlay(false);
-        var dt = $("#deep-text");
-        dt.textContent = res.content || "";
-        dt.hidden = false;
-        dt.scrollIntoView({ behavior: "smooth", block: "start" });
-        haptic("success");
-      })
-      .catch(function (err) {
-        overlay(false); btn.disabled = false;
-        if (err.status === 402) {
-          var d = err.detail || {};
-          if (d.reason === "premium_daily_exhausted") {
-            toast("Дневной лимит глубоких разборов исчерпан. Докупить за ⭐ " + (d.price_stars || "") + "?");
-          } else {
-            toast("Глубокий разбор за ⭐ " + (d.price_stars || "") + ".");
-          }
-          offerPurchase(d, function () { requestDeep(spreadId); });
-        } else handleError(err);
-      });
   }
 
   // ---- Card dialogue ----
@@ -608,8 +745,9 @@
     if (!msg || !state.chat) return;
     input.value = "";
     addBubble("user", msg);
-    var typing = addBubble("card", "…");
+    var typing = addBubble("card", "");
     typing.classList.add("typing");
+    typing.innerHTML = '<span class="tdot"></span><span class="tdot"></span><span class="tdot"></span>';
     $("#chat-send").disabled = true;
     apiFetch("/api/chat", { method: "POST", body: {
       spread_id: state.chat.spreadId, card_id: state.chat.card.id, message: msg
@@ -639,7 +777,8 @@
     apiFetch("/api/decks").then(function (res) {
       list.innerHTML = "";
       res.decks.forEach(function (d) {
-        var item = el("div", "deck-item" + (d.selected ? " selected" : ""));
+        var soon = !!d.coming_soon;
+        var item = el("div", "deck-item" + (d.selected ? " selected" : "") + (soon ? " soon" : ""));
         var sw = el("div", "deck-swatch");
         var pal = d.palette || {};
         sw.style.background = pal.bg || "#222";
@@ -650,7 +789,14 @@
         info.appendChild(el("div", "deck-desc", d.description || ""));
         item.appendChild(info);
         var action = el("div", "deck-action");
-        if (d.selected) {
+        if (soon) {
+          // Колода анонсирована, но ещё не вышла — выбрать нельзя.
+          action.appendChild(el("span", "deck-badge soon-badge", "Скоро"));
+          item.addEventListener("click", function () {
+            haptic("warning");
+            toast("Карты говорят скоро…");
+          });
+        } else if (d.selected) {
           action.appendChild(el("span", "deck-badge", "✓ Выбрана"));
         } else if (d.owned) {
           var use = el("button", "btn-mini", "Выбрать");
@@ -666,7 +812,62 @@
         item.appendChild(action);
         list.appendChild(item);
       });
+      renderBacks(res.backs);
     }).catch(handleError);
+  }
+
+  // Рубашки (card backs) — выбор внутри экрана колод.
+  function renderBacks(backs) {
+    var block = $("#backs-block");
+    var list = $("#back-list");
+    if (!block || !list) return;
+    if (!backs || !backs.options || !backs.options.length) { block.hidden = true; return; }
+    block.hidden = false;
+    list.innerHTML = "";
+    backs.options.forEach(function (b) {
+      var item = el("div", "back-item" + (b.id === backs.selected ? " selected" : "") + (b.unlocked ? "" : " locked"));
+      var thumb = el("div", "back-thumb");
+      var img = document.createElement("img");
+      img.src = API + b.url;
+      img.alt = "";
+      img.onerror = function () { thumb.classList.add("noimg"); thumb.textContent = b.emoji || "\u2726"; img.remove(); };
+      thumb.appendChild(img);
+      if (!b.unlocked) thumb.appendChild(el("span", "back-lock", "\uD83D\uDD12"));
+      item.appendChild(thumb);
+      item.appendChild(el("div", "back-name", (b.emoji ? b.emoji + " " : "") + b.name));
+      var status;
+      if (b.id === backs.selected) status = el("div", "back-status ok", "\u2713 \u0412\u044b\u0431\u0440\u0430\u043d\u0430");
+      else if (b.unlocked) status = el("div", "back-status", "\u041d\u0430\u0436\u043c\u0438, \u0447\u0442\u043e\u0431\u044b \u0432\u044b\u0431\u0440\u0430\u0442\u044c");
+      else status = el("div", "back-status", "\u0415\u0449\u0451 " + b.days_left + " " + dayWord(b.days_left) + " \u043a\u0430\u043b\u0435\u043d\u0434\u0430\u0440\u0438\u043a\u0430");
+      item.appendChild(status);
+      if (b.unlocked && b.id !== backs.selected) {
+        item.onclick = (function (bid) { return function () { selectBack(bid); }; })(b.id);
+      } else if (!b.unlocked) {
+        item.onclick = function () { haptic("warning"); toast("\u0420\u0443\u0431\u0430\u0448\u043a\u0430 \u043e\u0442\u043a\u0440\u043e\u0435\u0442\u0441\u044f \u043d\u0430 20-\u0439 \u0434\u0435\u043d\u044c \u043a\u0430\u043b\u0435\u043d\u0434\u0430\u0440\u0438\u043a\u0430."); };
+      }
+      list.appendChild(item);
+    });
+  }
+
+  function dayWord(n) {
+    var m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return "\u0434\u0435\u043d\u044c";
+    if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return "\u0434\u043d\u044f";
+    return "\u0434\u043d\u0435\u0439";
+  }
+
+  function selectBack(id) {
+    haptic("light");
+    apiFetch("/api/settings", { method: "POST", body: { card_back: id } })
+      .then(function () {
+        loadDecks();
+        loadMe();
+        toast("\u0420\u0443\u0431\u0430\u0448\u043a\u0430 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0430.");
+      })
+      .catch(function (err) {
+        if (err.status === 402) toast("\u042d\u0442\u0430 \u0440\u0443\u0431\u0430\u0448\u043a\u0430 \u043f\u043e\u043a\u0430 \u0437\u0430\u043a\u0440\u044b\u0442\u0430.");
+        else handleError(err);
+      });
   }
 
   function selectDeck(id) {
@@ -691,6 +892,7 @@
         var top = el("div", "hist-top");
         top.appendChild(el("div", "hist-type", labelFor(h.type)));
         top.appendChild(el("div", "hist-date", fmtDate(h.created_at)));
+        if (h.verdict) top.appendChild(el("span", "verdict-dot v-" + h.verdict, ""));
         item.appendChild(top);
         var names = (h.cards || []).map(function (c) { return (c.emoji || "") + c.name + (c.reversed ? " ⇅" : ""); }).join(" · ");
         item.appendChild(el("div", "hist-cards", names));
@@ -711,20 +913,83 @@
         interpretation: row.interpretation || ""
       };
       renderTable(state.current, { done: true });
-      if (row.deep) { var dt = $("#deep-text"); dt.textContent = row.deep; dt.hidden = false; }
       showScreen("table");
     }).catch(function (err) { overlay(false); handleError(err); });
   }
+
+  // ---- Collection (коллекция карт) ----
+  function loadCollection() {
+    var grid = $("#coll-grid");
+    if (!grid) return;
+    grid.innerHTML = "<div class='empty-note'>Загрузка…</div>";
+    apiFetch("/api/collection").then(function (res) {
+      grid.innerHTML = "";
+      var cnt = $("#coll-count");
+      if (cnt) cnt.textContent = (res.collected || 0) + " / " + (res.total || 0);
+      var hasBackArt = !!res.has_back_art;
+      (res.cards || []).forEach(function (c) {
+        var cell = el("div", "coll-cell" + (c.seen ? " seen" : " locked"));
+        var img = el("div", "coll-img");
+        if (c.seen) {
+          var im = document.createElement("img");
+          im.src = API + c.image;
+          im.alt = c.name || "";
+          im.loading = "lazy";
+          im.onerror = function () { img.classList.add("noimg"); img.textContent = c.emoji || "🃏"; im.remove(); };
+          img.appendChild(im);
+        } else if (hasBackArt && c.back) {
+          // Есть реальная рубашка (webp/png) — показываем её вместо «?».
+          var bk = document.createElement("img");
+          bk.src = API + c.back;
+          bk.alt = "";
+          bk.loading = "lazy";
+          bk.onerror = function () { img.classList.add("noimg"); img.textContent = "?"; bk.remove(); };
+          img.appendChild(bk);
+        } else {
+          // Пока рубашки нет — силуэт «?».
+          img.classList.add("noimg");
+          img.textContent = "?";
+        }
+        cell.appendChild(img);
+        cell.appendChild(el("div", "coll-name", c.seen ? (c.name || "") : "—"));
+        if (c.seen && c.count > 1) cell.appendChild(el("div", "coll-badge", "×" + c.count));
+        if (c.seen) {
+          cell.addEventListener("click", function () { openCardView(c); });
+        }
+        grid.appendChild(cell);
+      });
+    }).catch(handleError);
+  }
+
+  // ---- Card view (увеличенный просмотр найденной карты) ----
+  function openCardView(c) {
+    var m = $("#cardview");
+    if (!m) return;
+    haptic("light");
+    var im = $("#cardview-img");
+    im.src = API + c.image;
+    im.alt = c.name || "";
+    $("#cardview-name").textContent = c.name || "";
+    var meta = [];
+    if (c.suit_label) meta.push(c.suit_label);
+    if (c.number) meta.push("№ " + c.number);
+    if (c.count > 1) meta.push("выпадала ×" + c.count);
+    $("#cardview-meta").textContent = meta.join(" · ");
+    m.hidden = false;
+  }
+
+  function closeCardView() { var m = $("#cardview"); if (m) m.hidden = true; }
 
   // ---- Week ----
   function loadWeekBanner() {
     apiFetch("/api/week").then(function (w) {
       var banner = $("#week-banner");
       banner.hidden = false;
+      var goal = w.goal_days || 7;
       $("#week-desc").textContent = w.claimed
         ? "Итог недели готов"
-        : "Дней с картой: " + w.distinct_days + "/" + w.min_days;
-      var pct = Math.min(100, Math.round((w.distinct_days / w.min_days) * 100));
+        : "Дней с картой: " + w.distinct_days + "/" + goal + (w.can_claim ? " · итог готов ✨" : "");
+      var pct = Math.min(100, Math.round((w.distinct_days / goal) * 100));
       $("#week-bar").style.width = (w.claimed ? 100 : pct) + "%";
     }).catch(function () {});
   }
@@ -741,14 +1006,15 @@
         body.appendChild(el("div", "week-locked-note", "Итог выдаётся один раз в неделю и не перетрактовывается."));
         return;
       }
-      info.textContent = "Карта дня отмечена в " + w.distinct_days + " из " + w.min_days + " необходимых дней этой недели.";
+      var goal2 = w.goal_days || 7;
+      info.textContent = "Карта дня отмечена в " + w.distinct_days + " из " + goal2 + " дней этой недели (для итога хватит " + w.min_days + ").";
       body.appendChild(info);
       var btn = el("button", "btn-premium");
       btn.innerHTML = '<span class="bp-ico">🌙</span><span class="bp-label">Получить итог недели</span>';
       btn.disabled = !w.can_claim;
       btn.onclick = function () { claimWeek(); };
       body.appendChild(btn);
-      if (!w.can_claim) body.appendChild(el("div", "week-locked-note", "Итог откроется, когда наберётся " + w.min_days + " дней с картой дня. Выдаётся один раз."));
+      if (!w.can_claim) body.appendChild(el("div", "week-locked-note", "Итог откроется, когда наберётся " + w.min_days + " дней с картой дня (больше — точнее). Выдаётся один раз."));
     }).catch(handleError);
   }
 
@@ -960,7 +1226,18 @@
       })
       .catch(function (err) {
         overlay(false);
-        if (err.status === 429) { toast("Лимит на сегодня исчерпан. Сброс в 00:00 UTC."); haptic("error"); }
+        if (err.status === 429) {
+          haptic("error");
+          var dd = err.detail || {};
+          if (offerLimitOptions(dd, function () { submitManual(); })) {
+            // оплачено зёрнами
+          } else if (dd.product) {
+            toast("Лимит исчерпан. Докупить за ⭐ " + (dd.price_stars || "") + "?");
+            offerPurchase(dd, function () { submitManual(); });
+          } else {
+            toast("Лимит на сегодня исчерпан. Сброс в 00:00 UTC.");
+          }
+        }
         else if (err.status === 400) {
           var d = err.detail || {};
           if (d.error === "duplicate_cards") toast("Карты не должны повторяться.");
@@ -991,7 +1268,7 @@
       days.forEach(function (dt) {
         var key = dt.toISOString().slice(0, 10);
         var info = byDay[key];
-        var cell = el("div", "cal-cell" + (info && info.card ? " has" : "") + (info && info.locked ? " locked" : ""));
+        var cell = el("div", "cal-cell" + (info && info.card ? " has" : "") + (info && info.locked ? " locked" : "") + (info && info.verdict ? " v-" + info.verdict : ""));
         if (key === res.today) cell.classList.add("today");
         cell.appendChild(el("div", "cal-num", String(dt.getUTCDate())));
         if (info && info.card) {
@@ -1006,6 +1283,240 @@
         grid.appendChild(cell);
       });
     }).catch(handleError);
+  }
+
+  // ---- Зёрна (coins) ----
+  function coinWord(n, forms) {
+    if (!forms) return "";
+    n = Math.abs(n) % 100;
+    var n1 = n % 10;
+    if (n > 10 && n < 20) return forms.many;
+    if (n1 > 1 && n1 < 5) return forms.few;
+    if (n1 === 1) return forms.one;
+    return forms.many;
+  }
+
+  function renderCoins(coins) {
+    state.coins = coins || null;
+    var pill = $("#coins-pill");
+    var qb = $("#quests-banner");
+    if (!coins || !coins.quests_active) {
+      if (pill) pill.hidden = true;
+      if (qb) qb.hidden = true;
+      return;
+    }
+    if (pill) { pill.hidden = false; $("#coins-balance").textContent = String(coins.balance || 0); }
+    if (qb) qb.hidden = false;
+  }
+
+  // ---- Тропа Гуся (quests) ----
+  function loadQuests() {
+    var list = $("#quests-list");
+    if (list) list.innerHTML = "<div class='empty-note'>Загружаю задания…</div>";
+    apiFetch("/api/quests").then(function (res) {
+      renderQuests(res);
+    }).catch(function (err) {
+      if (list) list.innerHTML = "<div class='empty-note'>Не удалось загрузить задания.</div>";
+      handleError(err);
+    });
+  }
+
+  function renderQuests(res) {
+    var coins = res.coins || {};
+    renderCoins(coins);
+    var forms = coins.forms || {};
+    var bal = coins.balance || 0;
+    var balEl = $("#quests-balance"); if (balEl) balEl.textContent = String(bal);
+    var wordEl = $("#quests-balance-word"); if (wordEl) wordEl.textContent = coinWord(bal, forms) || "зёрен";
+
+    var prices = $("#quests-prices");
+    if (prices) {
+      prices.innerHTML = "";
+      var titles = { spread_single: "Карта дня", spread_three: "Три карты", spread_cross4: "Крест (4)", spread_cross5: "Крест (5)" };
+      var p = coins.prices || {};
+      Object.keys(titles).forEach(function (k) {
+        if (!p[k]) return;
+        var chip = el("div", "qprice");
+        chip.appendChild(el("span", "qprice-name", titles[k]));
+        chip.appendChild(el("span", "qprice-cost", "🌾 " + p[k]));
+        prices.appendChild(chip);
+      });
+    }
+
+    var list = $("#quests-list");
+    if (!list) return;
+    list.innerHTML = "";
+    var quests = res.quests || [];
+    if (!res.active || !quests.length) {
+      list.innerHTML = "<div class='empty-note'>Заданий пока нет. Загляни позже 🌱</div>";
+      return;
+    }
+    var delay = res.claim_delay_sec || 15;
+    quests.forEach(function (q) { list.appendChild(questCard(q, delay)); });
+  }
+
+  function questCard(q, delay) {
+    var card = el("div", "quest-card");
+    if (q.done) card.classList.add("done");
+    if (q.kind === "temporary") card.classList.add("temp");
+
+    var head = el("div", "quest-head");
+    head.appendChild(el("span", "quest-emoji", q.emoji || "🌾"));
+    var tw = el("div", "quest-title-wrap");
+    tw.appendChild(el("div", "quest-title", q.title || ""));
+    if (q.desc) tw.appendChild(el("div", "quest-desc", q.desc));
+    head.appendChild(tw);
+    head.appendChild(el("div", "quest-reward", "🌾 " + (q.reward || 0)));
+    card.appendChild(head);
+
+    var foot = el("div", "quest-foot");
+    if (q.freq === "daily") foot.appendChild(el("span", "quest-tag", "Каждый день"));
+    if (q.kind === "temporary") foot.appendChild(el("span", "quest-tag temp", "Временное"));
+    if (foot.childNodes.length) card.appendChild(foot);
+
+    var btn = el("button", "quest-btn");
+    if (q.done) {
+      btn.textContent = q.freq === "daily" ? "✓ Сегодня получено" : "✓ Получено";
+      btn.disabled = true;
+      card.appendChild(btn);
+      return card;
+    }
+    if (q.verify === "trust") {
+      btn.textContent = "Забрать 🌾 " + (q.reward || 0);
+      btn.onclick = function () { claimQuest(q, btn); };
+    } else {
+      btn.textContent = q.status === "started" ? ("Забрать 🌾 " + (q.reward || 0)) : "Открыть";
+      btn.onclick = function () {
+        if (btn.dataset.ready === "1" || q.status === "started") { claimQuest(q, btn); return; }
+        if (q.url) { try { (TG && TG.openLink) ? TG.openLink(q.url) : window.open(q.url, "_blank"); } catch (e) {} }
+        startQuest(q, btn, delay);
+      };
+    }
+    card.appendChild(btn);
+    return card;
+  }
+
+  function startQuest(q, btn, delay) {
+    apiFetch("/api/quests/start", { method: "POST", body: { id: q.id } }).catch(function () {});
+    var left = delay;
+    btn.disabled = true;
+    btn.textContent = "Подожди " + left + "с…";
+    var timer = setInterval(function () {
+      left -= 1;
+      if (left <= 0) {
+        clearInterval(timer);
+        btn.disabled = false;
+        btn.dataset.ready = "1";
+        btn.textContent = "Забрать 🌾 " + (q.reward || 0);
+      } else { btn.textContent = "Подожди " + left + "с…"; }
+    }, 1000);
+  }
+
+  function claimQuest(q, btn) {
+    btn.disabled = true;
+    apiFetch("/api/quests/claim", { method: "POST", body: { id: q.id } }).then(function (res) {
+      haptic("success");
+      if (res.reward) toast("+" + res.reward + " 🌾");
+      if (res.coins) renderCoins(res.coins);
+      loadQuests();
+    }).catch(function (err) {
+      btn.disabled = false;
+      var d = err && err.detail;
+      if (err && err.status === 425 && d && d.error === "too_soon") {
+        toast("Ещё чуть-чуть — подожди " + (d.wait_sec || 1) + "с.");
+      } else if (err && err.status === 409) {
+        toast("Уже получено."); loadQuests();
+      } else { handleError(err); }
+    });
+  }
+
+  // ---- Оплата зёрнами (redeem) ----
+  function payWithCoins(action, onDone) {
+    overlay(true, "Оплачиваю зёрнами…");
+    apiFetch("/api/coins/redeem", { method: "POST", body: { action: action } }).then(function (res) {
+      overlay(false);
+      haptic("success");
+      if (res.coins) renderCoins(res.coins);
+      toast("Оплачено 🌾 " + (res.spent || ""));
+      if (onDone) onDone();
+    }).catch(function (err) {
+      overlay(false);
+      if (err && err.status === 402) { toast("Не хватает зёрен. Загляни на Тропу Гуся 🌾"); }
+      else { handleError(err); }
+    });
+  }
+
+  // Если зёрен хватает — сразу предлагаем оплату зёрнами (возвращает true).
+  function offerLimitOptions(detail, onDraw) {
+    var coins = state.coins || {};
+    var price = detail.coin_price || 0;
+    var have = coins.balance || 0;
+    if (coins.quests_active && price > 0 && have >= price) {
+      toast("Лимит исчерпан. Оплачиваю за 🌾 " + price);
+      payWithCoins(detail.action, onDraw);
+      return true;
+    }
+    return false;
+  }
+
+  // ---- Админ: общая статистика ----
+  function loadAdminStats() {
+    var body = $("#admin-body");
+    if (body) body.innerHTML = "<div class='empty-note'>Загружаю…</div>";
+    apiFetch("/api/admin/global-stats").then(function (res) {
+      renderAdminStats(res);
+    }).catch(function (err) {
+      if (body) body.innerHTML = "<div class='empty-note'>Нет доступа или ошибка.</div>";
+      handleError(err);
+    });
+  }
+
+  function renderAdminStats(res) {
+    var body = $("#admin-body");
+    if (!body) return;
+    body.innerHTML = "";
+    var fb = res.feedback || {};
+    var top = el("div", "admin-cards");
+    function stat(label, val) {
+      var c = el("div", "admin-stat");
+      c.appendChild(el("div", "admin-stat-val", String(val)));
+      c.appendChild(el("div", "admin-stat-lbl", label));
+      return c;
+    }
+    top.appendChild(stat("Пользователи", res.users || 0));
+    top.appendChild(stat("Расклады", res.spreads || 0));
+    top.appendChild(stat("Ответов по карте дня", fb.total || 0));
+    body.appendChild(top);
+
+    var fbBox = el("div", "admin-fb");
+    fbBox.appendChild(el("div", "admin-h", "Карта дня — совпадения"));
+    var bars = el("div", "admin-bars");
+    [["Совпало", fb.pct_match || 0, "green"], ["Частично", fb.pct_partial || 0, "yellow"], ["Не похоже", fb.pct_miss || 0, "red"]].forEach(function (r) {
+      var row = el("div", "admin-bar-row");
+      row.appendChild(el("span", "admin-bar-lbl", r[0]));
+      var track = el("div", "admin-bar-track");
+      var fill = el("div", "admin-bar-fill " + r[2]);
+      fill.style.width = r[1] + "%";
+      track.appendChild(fill);
+      row.appendChild(track);
+      row.appendChild(el("span", "admin-bar-pct", r[1] + "%"));
+      bars.appendChild(row);
+    });
+    fbBox.appendChild(bars);
+    body.appendChild(fbBox);
+
+    var cards = (res.cards && res.cards.top) || [];
+    if (cards.length) {
+      var cbox = el("div", "admin-topcards");
+      cbox.appendChild(el("div", "admin-h", "Частые карты дня"));
+      cards.forEach(function (c) {
+        var row = el("div", "admin-card-row");
+        row.appendChild(el("span", "admin-card-name", (c.emoji || "🃏") + " " + (c.name || c.id || "")));
+        row.appendChild(el("span", "admin-card-cnt", "×" + (c.count || 0)));
+        cbox.appendChild(row);
+      });
+      body.appendChild(cbox);
+    }
   }
 
   // ---- Utils ----
@@ -1035,22 +1546,21 @@
         saveSetting({ theme: t }, "Тема обновлена.");
       });
     });
-    // Авторост поля вопроса + кнопка очистки
-    var q = $("#q-input");
-    if (q) {
-      q.addEventListener("input", function () {
-        q.style.height = "auto";
-        q.style.height = Math.min(q.scrollHeight, 120) + "px";
-        $("#q-clear").hidden = !q.value.trim();
-      });
-    }
-    var qc = $("#q-clear");
-    if (qc) qc.addEventListener("click", function () {
-      q.value = ""; q.style.height = "auto"; qc.hidden = true; q.focus();
+    // Лист-шторка вопроса перед раскладом
+    var qsGo = $("#q-sheet-go");
+    if (qsGo) qsGo.addEventListener("click", confirmQuestionSheet);
+    var qsClose = $("#q-sheet-close");
+    if (qsClose) qsClose.addEventListener("click", closeQuestionSheet);
+    var qsBg = $("#q-sheet");
+    if (qsBg) qsBg.addEventListener("click", function (e) { if (e.target === qsBg) closeQuestionSheet(); });
+    var qsInput = $("#q-sheet-input");
+    if (qsInput) qsInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) confirmQuestionSheet();
     });
 
     $("#chat-back").addEventListener("click", function () { showScreen("table"); });
     $("#chat-form").addEventListener("submit", sendChat);
+    initStardust();
 
     // Ручной режим + модалка выбора карт
     var mReset = $("#manual-reset");
@@ -1063,6 +1573,10 @@
     });
     var pClose = $("#picker-close");
     if (pClose) pClose.addEventListener("click", closePicker);
+    var cvClose = $("#cardview-close");
+    if (cvClose) cvClose.addEventListener("click", closeCardView);
+    var cvBg = $("#cardview");
+    if (cvBg) cvBg.addEventListener("click", function (e) { if (e.target === cvBg) closeCardView(); });
     var pSearch = $("#picker-search");
     if (pSearch) pSearch.addEventListener("input", function () { renderPicker(); });
     var pickerBg = $("#picker");

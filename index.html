@@ -23,7 +23,10 @@
         <span class="brand-name">Таро</span>
       </div>
       <div class="topbar-right">
-        <span id="admin-badge" class="admin-badge" hidden>ADMIN</span>
+        <button id="coins-pill" class="coins-pill" data-nav="quests" title="Зёрна" hidden>
+          <span class="coins-emoji">🌾</span><span id="coins-balance" class="coins-balance">0</span>
+        </button>
+        <span id="admin-badge" class="admin-badge" data-nav="admin" hidden>ADMIN</span>
         <span id="stars" class="stars" title="Остаток раскладов на сегодня"></span>
       </div>
     </header>
@@ -32,37 +35,42 @@
       <!-- ================= HOME ================= -->
       <section id="screen-home" class="screen active">
         <div class="hero">
-          <h1 id="greeting" class="hero-title">Здравствуй</h1>
-          <p class="hero-sub">Задай вопрос — или просто выбери расклад</p>
-          <button id="deck-pill" class="deck-pill" data-nav="decks">
-            <span id="deck-pill-emoji">🂠</span>
-            <span id="deck-pill-name">Классическая</span>
+          <!-- Выбор трактователя — слим-бар над званием. Тап — к трактователям. -->
+          <button id="reader-pill" class="reader-pill" data-nav="readers">
+            <span id="reader-pill-emoji" class="reader-pill-emoji">🔮</span>
+            <span class="reader-pill-main">
+              <span class="reader-pill-label">Трактователь</span>
+              <span id="reader-pill-name" class="reader-pill-name">Таролог</span>
+            </span>
+            <span class="reader-pill-chevron">›</span>
           </button>
-        </div>
-
-        <!-- Optional question (можно пропустить) -->
-        <div class="q-wrap">
-          <textarea id="q-input" class="q-input" rows="1" maxlength="240"
-            placeholder="Вопрос — по желанию, можно пропустить"></textarea>
-          <button id="q-clear" class="q-clear" hidden aria-label="Очистить">×</button>
+          <!-- Присвоенное звание вместо приветствия по имени. Тап — в коллекцию. -->
+          <button id="rank-box" class="rank-box" data-nav="collection">
+            <span id="rank-emoji" class="rank-emoji">🥚</span>
+            <span class="rank-main">
+              <span id="rank-title" class="rank-title">Гусёнок</span>
+              <span id="rank-degree" class="rank-degree">Степень XIII</span>
+              <span class="rank-bar"><span id="rank-bar-fill" class="rank-bar-fill"></span></span>
+              <span id="rank-sub" class="rank-sub">0 карт открыто</span>
+            </span>
+            <span class="rank-chevron">›</span>
+          </button>
+          <p class="hero-sub">Выбери расклад — и задай вопрос, если хочешь</p>
         </div>
 
         <div id="spread-groups" class="spread-groups">
           <div class="empty-note">Загружаю расклады…</div>
         </div>
 
-        <div class="home-actions">
-          <button class="home-action" data-nav="manual">
-            <span class="ha-ico">🎴</span>
-            <span class="ha-label">Ручной ввод</span>
-            <span class="ha-sub">Свои карты</span>
-          </button>
-          <button class="home-action" data-nav="calendar">
-            <span class="ha-ico">📅</span>
-            <span class="ha-label">Календарь</span>
-            <span class="ha-sub">Карты дня</span>
-          </button>
-        </div>
+        <!-- Выбор колоды — полноценная кнопка под раскладами. -->
+        <button id="deck-pill" class="deck-cta" data-nav="decks">
+          <span id="deck-pill-emoji" class="deck-cta-emoji">🎴</span>
+          <span class="deck-cta-main">
+            <span class="deck-cta-label">Колоды</span>
+            <span id="deck-pill-name" class="deck-cta-name">Классическая</span>
+          </span>
+          <span class="deck-cta-chevron">›</span>
+        </button>
 
         <button id="week-banner" class="week-banner" data-nav="week" hidden>
           <div class="wb-title">🌙 Моя неделя</div>
@@ -76,6 +84,16 @@
             <div class="pb-title">Аркан Premium</div>
             <div id="premium-banner-sub" class="pb-sub">Все расклады и разборы без ограничений</div>
           </div>
+        </button>
+
+        <!-- Тропа Гуся — задания за зёрна (скролл внизу главной). -->
+        <button id="quests-banner" class="quests-banner" data-nav="quests" hidden>
+          <div class="qb-ico">🌾</div>
+          <div class="qb-text">
+            <div class="qb-title">Тропа Гуся</div>
+            <div id="quests-banner-sub" class="qb-sub">Выполняй задания — получай зёрна</div>
+          </div>
+          <span class="qb-chevron">›</span>
         </button>
       </section>
 
@@ -92,16 +110,6 @@
           <div id="interp" class="interp-text"></div>
         </div>
 
-        <!-- Deep-dive (premium) -->
-        <div id="deep-block" class="deep-block" hidden>
-          <button id="deep-btn" class="btn-premium">
-            <span class="bp-ico">🔮</span>
-            <span class="bp-label">Глубокий разбор</span>
-            <span id="deep-price" class="bp-price"></span>
-          </button>
-          <div id="deep-text" class="deep-text" hidden></div>
-        </div>
-
         <div id="chat-hint" class="card-chat-hint" hidden>Нажми на карту, чтобы поговорить с ней</div>
       </section>
 
@@ -116,7 +124,7 @@
           <button class="back-link" id="manual-reset">‹ Другой расклад</button>
           <h3 id="manual-title" class="manual-title"></h3>
           <div class="q-wrap">
-            <textarea id="manual-q" class="q-input" rows="1" maxlength="240"
+            <textarea id="manual-q" class="q-input" rows="2" maxlength="240"
               placeholder="Вопрос — по желанию, можно пропустить"></textarea>
           </div>
           <div id="manual-slots" class="manual-slots"></div>
@@ -160,6 +168,11 @@
         <h2 class="screen-title">Колоды</h2>
         <p class="screen-sub">Выбери стиль карт. Новые колоды будут появляться здесь.</p>
         <div id="deck-list" class="deck-list"></div>
+        <div id="backs-block" class="backs-block" hidden>
+          <h3 class="backs-title">🌹 Рубашка карт</h3>
+          <p class="screen-sub">Оборот карт в раскладах. Лунный ключ открывается на 20-й день календарика.</p>
+          <div id="back-list" class="back-list"></div>
+        </div>
       </section>
 
       <!-- ================= HISTORY ================= -->
@@ -174,6 +187,45 @@
         <button class="back-link" data-nav="home">‹ Назад</button>
         <h2 class="screen-title">🌙 Моя неделя</h2>
         <div id="week-body" class="week-body"></div>
+      </section>
+
+      <!-- ================= COLLECTION ================= -->
+      <section id="screen-collection" class="screen">
+        <button class="back-link" data-nav="home">‹ Назад</button>
+        <h2 class="screen-title">🃏 Коллекция</h2>
+        <p class="screen-sub">Открыто <span id="coll-count" class="coll-count">0 / 0</span> — карты, которые тебе выпадали.</p>
+        <div id="coll-grid" class="coll-grid"></div>
+      </section>
+
+      <!-- ================= READERS (Трактователи) ================= -->
+      <section id="screen-readers" class="screen">
+        <button class="back-link" data-nav="home">‹ Назад</button>
+        <h2 class="screen-title">🔮 Трактователи</h2>
+        <p class="screen-sub">Каждый — свой характер и стиль трактовки. Нажми на карточку — прочтёшь описание.</p>
+        <div id="readers-list" class="readers-list">
+          <div class="empty-note">Загружаю трактователей…</div>
+        </div>
+      </section>
+
+      <!-- ================= QUESTS (Тропа Гуся) ================= -->
+      <section id="screen-quests" class="screen">
+        <button class="back-link" data-nav="home">‹ Назад</button>
+        <h2 class="screen-title">🌾 Тропа Гуся</h2>
+        <div class="quests-coins-head">
+          <span class="qch-emoji">🌾</span>
+          <span id="quests-balance" class="qch-balance">0</span>
+          <span id="quests-balance-word" class="qch-label">зёрен</span>
+        </div>
+        <p class="screen-sub">Выполняй задания и копи зёрна. Зёрнами можно оплатить трактовку — от карты дня до крестов.</p>
+        <div id="quests-prices" class="quests-prices"></div>
+        <div id="quests-list" class="quests-list"><div class="empty-note">Загружаю задания…</div></div>
+      </section>
+
+      <!-- ================= ADMIN STATS ================= -->
+      <section id="screen-admin" class="screen">
+        <button class="back-link" data-nav="home">‹ Назад</button>
+        <h2 class="screen-title">📊 Статистика</h2>
+        <div id="admin-body" class="admin-body"><div class="empty-note">Загружаю…</div></div>
       </section>
 
       <!-- ================= SETTINGS ================= -->
@@ -237,6 +289,19 @@
       <button class="tab" data-nav="settings"><span>⚙️</span>Настройки</button>
     </nav>
 
+    <!-- Question sheet (вопрос перед раскладом) -->
+    <div id="q-sheet" class="q-sheet" hidden>
+      <div class="q-sheet-card">
+        <div class="picker-head">
+          <div id="q-sheet-title" class="picker-title">Расклад</div>
+          <button id="q-sheet-close" class="picker-close" aria-label="Закрыть">×</button>
+        </div>
+        <div class="q-sheet-sub">Задай вопрос (по желанию) — трактовка его учтёт. Или просто разложи.</div>
+        <textarea id="q-sheet-input" class="q-sheet-input" rows="2" maxlength="240" placeholder="О чём спросить карты?"></textarea>
+        <button id="q-sheet-go" class="btn-premium"><span class="bp-label">Разложить</span></button>
+      </div>
+    </div>
+
     <!-- Card picker modal (ручной режим) -->
     <div id="picker" class="picker" hidden>
       <div class="picker-card">
@@ -247,6 +312,16 @@
         <input id="picker-search" class="picker-search" type="text" autocomplete="off" placeholder="Поиск карты…" />
         <div id="picker-suits" class="picker-suits"></div>
         <div id="picker-grid" class="picker-grid"></div>
+      </div>
+    </div>
+
+    <!-- Card view modal (просмотр найденной карты из коллекции) -->
+    <div id="cardview" class="cardview" hidden>
+      <div class="cardview-card">
+        <button id="cardview-close" class="picker-close cardview-close" aria-label="Закрыть">×</button>
+        <div class="cardview-img-wrap"><img id="cardview-img" src="" alt="" /></div>
+        <div id="cardview-name" class="cardview-name"></div>
+        <div id="cardview-meta" class="cardview-meta"></div>
       </div>
     </div>
 
