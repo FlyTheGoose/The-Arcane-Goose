@@ -9,7 +9,7 @@
  * needs to change between environments.
  */
 window.TAROT_CONFIG = {
-  API_BASE: "https://proof-billion-explained-mens.trycloudflare.com",
+  API_BASE: "https://fifteen-isaac-digest-constraints.trycloudflare.com,
   // When true, the app won't require Telegram WebApp (pairs with API_DEV_MODE=1).
   DEV: false,
 };
