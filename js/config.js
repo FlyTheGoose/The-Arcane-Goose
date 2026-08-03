@@ -9,7 +9,7 @@
  * needs to change between environments.
  */
 window.TAROT_CONFIG = {
-  API_BASE: "https://subsidiary-explaining-sky-notification.trycloudflare.com",
+  API_BASE: " https://subsidiary-explaining-sky-notification.trycloudflare.com",
   // When true, the app won't require Telegram WebApp (pairs with API_DEV_MODE=1).
   DEV: false,
 };
