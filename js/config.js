@@ -9,7 +9,7 @@
  * needs to change between environments.
  */
 window.TAROT_CONFIG = {
-  API_BASE: "https://deemed-sep-tuner-sleeps.trycloudflare.com",
+  API_BASE: "https://tracy-salary-lending-destiny.trycloudflare.com",
   // When true, the app won't require Telegram WebApp (pairs with API_DEV_MODE=1).
   DEV: false,
 };
